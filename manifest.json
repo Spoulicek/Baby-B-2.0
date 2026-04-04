@@ -1,8 +1,8 @@
 {
   "name": "Brooklyn's Schedule",
   "short_name": "Brooklyn",
-  "start_url": "/Baby-B-scheduling-/",
-  "scope": "/Baby-B-scheduling-/",
+  "start_url": "/Baby-B-2.0/",
+  "scope": "/Baby-B-2.0/",
   "display": "standalone",
   "background_color": "#faf6f1",
   "theme_color": "#c8707a",
