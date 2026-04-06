@@ -341,19 +341,72 @@ function resetDay(){
 }
 
 function computeSchedule(s){
-  const d=s||state;const result=[];let prevEnd=null;
-  for(let i=0;i<BASE_SCHEDULE.length;i++){
-    const ev=BASE_SCHEDULE[i];let start,cascaded=false;
-    if(d.actual&&d.actual[ev.id]!==undefined){start=d.actual[ev.id];}
-    else if(prevEnd!==null&&ev.gap!==null){start=prevEnd+ev.gap;cascaded=true;}
-    else{start=toMins(ev.time);}
-    let end;
-    if(ev.type==='nap'&&d.napEnd&&d.napEnd[ev.id]!==undefined){end=d.napEnd[ev.id];}
-    else{end=start+ev.dur;}
-    prevEnd=end;
-    result.push({...ev,startMins:start,endMins:end,cascaded});
-  }
-  return result;
+  const d=s||state;
+  const act=d.actual||{};
+  const napEnds=d.napEnd||{};
+
+  // ── Feed times: hard 3hr cascade off previous feed ──
+  // Defaults: 7:30, 10:30, 13:30, 16:30. Last feed locked at 19:00.
+  const feedIds=['wake','feed2','feed3','feed4','feed5'];
+  const feedDefaults=[toMins('07:30'),toMins('10:30'),toMins('13:30'),toMins('16:30'),toMins('19:00')];
+  const LAST_FEED_LOCK=toMins('19:00');
+  const feedTimes={};
+
+  // Wake/feed 1
+  feedTimes['wake']=act['wake']!==undefined?act['wake']:feedDefaults[0];
+  // Feed 2,3,4: strict 3hr off previous feed
+  const feedChain=['feed2','feed3','feed4'];
+  const feedChainPrev=['wake','feed2','feed3'];
+  feedChain.forEach(function(id,i){
+    if(act[id]!==undefined){feedTimes[id]=act[id];}
+    else{feedTimes[id]=feedTimes[feedChainPrev[i]]+180;}
+  });
+  // Last feed: always locked at 7pm (no cascade)
+  feedTimes['feed5']=LAST_FEED_LOCK;
+
+  // ── Nap times: 90min wake window off previous wake ──
+  // Nap 1: wakeTime + 90
+  // Nap 2: napEnd[nap1] + 90
+  // Nap 3: napEnd[nap2] + 90
+  const WAKE_WIN=90;
+  const napStarts={};
+  const napEndsCalc={};
+
+  // Nap 1
+  if(act['nap1']!==undefined){napStarts['nap1']=act['nap1'];}
+  else{napStarts['nap1']=feedTimes['wake']+WAKE_WIN;}
+  napEndsCalc['nap1']=napEnds['nap1']!==undefined?napEnds['nap1']:napStarts['nap1']+75;
+
+  // Nap 2
+  if(act['nap2']!==undefined){napStarts['nap2']=act['nap2'];}
+  else{napStarts['nap2']=napEndsCalc['nap1']+WAKE_WIN;}
+  napEndsCalc['nap2']=napEnds['nap2']!==undefined?napEnds['nap2']:napStarts['nap2']+90;
+
+  // Nap 3
+  if(act['nap3']!==undefined){napStarts['nap3']=act['nap3'];}
+  else{napStarts['nap3']=napEndsCalc['nap2']+WAKE_WIN;}
+  napEndsCalc['nap3']=napEnds['nap3']!==undefined?napEnds['nap3']:napStarts['nap3']+90;
+
+  // Bedtime: 90min after nap3 wake
+  const bedTime=act['bed']!==undefined?act['bed']:napEndsCalc['nap3']+WAKE_WIN;
+
+  // ── Assemble result in order ──
+  const overrides={
+    wake:{start:feedTimes['wake'],end:feedTimes['wake'],cascaded:act['wake']===undefined},
+    nap1:{start:napStarts['nap1'],end:napEndsCalc['nap1'],cascaded:act['nap1']===undefined},
+    feed2:{start:feedTimes['feed2'],end:feedTimes['feed2'],cascaded:act['feed2']===undefined},
+    nap2:{start:napStarts['nap2'],end:napEndsCalc['nap2'],cascaded:act['nap2']===undefined},
+    feed3:{start:feedTimes['feed3'],end:feedTimes['feed3'],cascaded:act['feed3']===undefined},
+    nap3:{start:napStarts['nap3'],end:napEndsCalc['nap3'],cascaded:act['nap3']===undefined},
+    feed4:{start:feedTimes['feed4'],end:feedTimes['feed4'],cascaded:act['feed4']===undefined},
+    feed5:{start:feedTimes['feed5'],end:feedTimes['feed5'],cascaded:false},
+    bed:{start:bedTime,end:bedTime,cascaded:act['bed']===undefined},
+  };
+
+  return BASE_SCHEDULE.map(function(ev){
+    const o=overrides[ev.id];
+    return Object.assign({},ev,{startMins:o.start,endMins:o.end,cascaded:o.cascaded});
+  });
 }
 
 function getCurrentIdx(schedule){
